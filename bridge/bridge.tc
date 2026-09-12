@@ -1,0 +1,128 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Bridge - cross-chain lock-and-mint bridge for Astrolune.
+//
+// Compile:
+//     trocto contracts/bridge/bridge.tc -o bridge.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Lock tokens on source chain, mint wrapped tokens on destination.
+
+contract Bridge {
+    state {
+        token: address,
+        wrapped_token: address,
+        admin: address,
+        paused: u64,
+        nonce: u64,
+        processed_nonces: map<u64,u64>,
+        amount: map<u64,u64>,
+        sender_addr: map<u64,address>,
+        dest_chain: map<u64,u64>,
+        relay_count: u64,
+        relayers: map<u64,address>,
+        is_relayer: map<address,u64>,
+        quorum: u64,
+        relay_signatures: map<u64,u64>,
+    }
+
+    init(token: address, wrapped_token: address, quorum: u64) {
+        self.token = token;
+        self.wrapped_token = wrapped_token;
+        self.admin = sender();
+        self.quorum = quorum;
+    }
+
+    pub fn lock(dest_chain: u64, amount: u64) -> u64 {
+        require(self.paused == 0, 80);
+        require(amount > 0, 4);
+        self.nonce += 1;
+        let tx_id = self.nonce;
+        amount[tx_id] = amount;
+        sender_addr[tx_id] = sender();
+        dest_chain[tx_id] = dest_chain;
+        processed_nonces[tx_id] = 0;
+        emit Locked(tx_id, sender(), dest_chain, amount);
+        return tx_id;
+    }
+
+    pub fn relay(tx_id: u64) -> u64 {
+        require(self.is_relayer[sender()] == 1, 81);
+        require(processed_nonces[tx_id] == 0, 82);
+        relay_signatures[tx_id] += 1;
+        emit Relayed(tx_id, sender());
+        return relay_signatures[tx_id];
+    }
+
+    pub fn mint(tx_id: u64, to: address, amount: u64) -> u64 {
+        require(processed_nonces[tx_id] == 0, 82);
+        require(relay_signatures[tx_id] >= self.quorum, 83);
+        processed_nonces[tx_id] = 1;
+        emit Minted(tx_id, to, amount);
+        return 1;
+    }
+
+    pub fn burn(amount: u64) -> u64 {
+        require(self.paused == 0, 80);
+        require(amount > 0, 4);
+        self.nonce += 1;
+        let tx_id = self.nonce;
+        amount[tx_id] = amount;
+        sender_addr[tx_id] = sender();
+        processed_nonces[tx_id] = 0;
+        emit Burned(tx_id, sender(), amount);
+        return tx_id;
+    }
+
+    pub fn release(tx_id: u64, to: address, amount: u64) -> u64 {
+        require(processed_nonces[tx_id] == 0, 82);
+        require(relay_signatures[tx_id] >= self.quorum, 83);
+        processed_nonces[tx_id] = 1;
+        emit Released(tx_id, to, amount);
+        return 1;
+    }
+
+    pub fn add_relayer(relayer: address) -> u64 {
+        require(sender() == self.admin, 1);
+        require(self.is_relayer[relayer] == 0, 84);
+        self.relay_count += 1;
+        relayers[self.relay_count] = relayer;
+        self.is_relayer[relayer] = 1;
+        emit RelayerAdded(relayer);
+        return 1;
+    }
+
+    pub fn remove_relayer(relayer: address) -> u64 {
+        require(sender() == self.admin, 1);
+        self.is_relayer[relayer] = 0;
+        emit RelayerRemoved(relayer);
+        return 1;
+    }
+
+    pub fn pause() -> u64 {
+        require(sender() == self.admin, 1);
+        self.paused = 1;
+        emit Paused(sender());
+        return 1;
+    }
+
+    pub fn unpause() -> u64 {
+        require(sender() == self.admin, 1);
+        self.paused = 0;
+        emit Unpaused(sender());
+        return 1;
+    }
+
+    pub fn is_processed(tx_id: u64) -> u64 {
+        return processed_nonces[tx_id];
+    }
+
+    pub fn nonce() -> u64 {
+        return self.nonce;
+    }
+
+    pub fn quorum() -> u64 {
+        return self.quorum;
+    }
+}

@@ -1,0 +1,113 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Liquidity Pool - constant-product AMM for Astrolune.
+//
+// Compile:
+//     trocto contracts/defi/liquidity_pool.tc -o liquidity_pool.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Two-token AMM with LP token minting and 0.3% swap fee.
+
+contract LiquidityPool {
+    state {
+        token_a: address,
+        token_b: address,
+        reserve_a: u64,
+        reserve_b: u64,
+        total_lp: u64,
+        lp_balances: map<address,u64>,
+        fee_numerator: u64,
+        fee_denominator: u64,
+    }
+
+    init(token_a: address, token_b: address) {
+        self.token_a = token_a;
+        self.token_b = token_b;
+        self.fee_numerator = 3;
+        self.fee_denominator = 1000;
+    }
+
+    fn min(a: u64, b: u64) -> u64 {
+        if (a < b) {
+            return a;
+        }
+        return b;
+    }
+
+    pub fn add_liquidity(amount_a: u64, amount_b: u64) -> u64 {
+        require(amount_a > 0 && amount_b > 0, 70);
+        let lp_tokens: u64;
+        if (self.total_lp == 0) {
+            lp_tokens = amount_a;
+        } else {
+            let lp_a = (amount_a * self.total_lp) / self.reserve_a;
+            let lp_b = (amount_b * self.total_lp) / self.reserve_b;
+            lp_tokens = self.min(lp_a, lp_b);
+        }
+        require(lp_tokens > 0, 71);
+        self.reserve_a += amount_a;
+        self.reserve_b += amount_b;
+        self.total_lp += lp_tokens;
+        lp_balances[sender()] += lp_tokens;
+        emit LiquidityAdded(sender(), amount_a, amount_b, lp_tokens);
+        return lp_tokens;
+    }
+
+    pub fn remove_liquidity(lp_amount: u64) -> u64 {
+        require(lp_amount > 0, 72);
+        require(lp_balances[sender()] >= lp_amount, 73);
+        let amount_a = (lp_amount * self.reserve_a) / self.total_lp;
+        let amount_b = (lp_amount * self.reserve_b) / self.total_lp;
+        require(amount_a > 0 && amount_b > 0, 74);
+        lp_balances[sender()] -= lp_amount;
+        self.total_lp -= lp_amount;
+        self.reserve_a -= amount_a;
+        self.reserve_b -= amount_b;
+        emit LiquidityRemoved(sender(), amount_a, amount_b, lp_amount);
+        return 1;
+    }
+
+    pub fn swap(token_in: address, amount_in: u64) -> u64 {
+        require(amount_in > 0, 75);
+        require(token_in == self.token_a || token_in == self.token_b, 76);
+        let amount_in_with_fee = amount_in * (self.fee_denominator - self.fee_numerator);
+        let amount_out: u64;
+        if (token_in == self.token_a) {
+            amount_out = (amount_in_with_fee * self.reserve_b) / (self.reserve_a * self.fee_denominator + amount_in_with_fee);
+            require(amount_out > 0, 77);
+            self.reserve_a += amount_in;
+            self.reserve_b -= amount_out;
+        } else {
+            amount_out = (amount_in_with_fee * self.reserve_a) / (self.reserve_b * self.fee_denominator + amount_in_with_fee);
+            require(amount_out > 0, 77);
+            self.reserve_b += amount_in;
+            self.reserve_a -= amount_out;
+        }
+        emit Swapped(sender(), token_in, amount_in, amount_out);
+        return amount_out;
+    }
+
+    pub fn reserve_of(token: address) -> u64 {
+        if (token == self.token_a) {
+            return self.reserve_a;
+        }
+        return self.reserve_b;
+    }
+
+    pub fn lp_balance(account: address) -> u64 {
+        return lp_balances[account];
+    }
+
+    pub fn total_lp() -> u64 {
+        return self.total_lp;
+    }
+
+    pub fn get_amount_out(token_in: address, amount_in: u64) -> u64 {
+        let amount_in_with_fee = amount_in * (self.fee_denominator - self.fee_numerator);
+        if (token_in == self.token_a) {
+            return (amount_in_with_fee * self.reserve_b) / (self.reserve_a * self.fee_denominator + amount_in_with_fee);
+        }
+        return (amount_in_with_fee * self.reserve_a) / (self.reserve_b * self.fee_denominator + amount_in_with_fee);
+    }
+}

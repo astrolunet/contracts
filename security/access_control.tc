@@ -1,0 +1,73 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Access Control - role-based access control for Astrolune contracts.
+//
+// Compile:
+//     trocto contracts/security/access_control.tc -o access_control.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Admin manages roles; each role grants specific permissions.
+
+contract AccessControl {
+    state {
+        admin: address,
+        role_count: u64,
+        role_names: map<u64,u64>,
+        has_role: map<u64,map<address,u64>>,
+        default_admin_role: u64,
+    }
+
+    init() {
+        self.admin = sender();
+        self.default_admin_role = 0;
+        self.role_count = 1;
+        role_names[0] = 0;
+        has_role[0][sender()] = 1;
+    }
+
+    pub fn grant_role(role_id: u64, account: address) -> u64 {
+        require(has_role[self.default_admin_role][sender()] == 1, 1);
+        has_role[role_id][account] = 1;
+        emit RoleGranted(role_id, account, sender());
+        return 1;
+    }
+
+    pub fn revoke_role(role_id: u64, account: address) -> u64 {
+        require(has_role[self.default_admin_role][sender()] == 1, 1);
+        has_role[role_id][account] = 0;
+        emit RoleRevoked(role_id, account, sender());
+        return 1;
+    }
+
+    pub fn create_role(name: u64) -> u64 {
+        require(has_role[self.default_admin_role][sender()] == 1, 1);
+        self.role_count += 1;
+        role_names[self.role_count] = name;
+        emit RoleCreated(self.role_count, name);
+        return self.role_count;
+    }
+
+    pub fn has_role(role_id: u64, account: address) -> u64 {
+        return has_role[role_id][account];
+    }
+
+    pub fn is_admin(account: address) -> u64 {
+        return has_role[self.default_admin_role][account];
+    }
+
+    pub fn renounce_admin() -> u64 {
+        require(has_role[self.default_admin_role][sender()] == 1, 1);
+        has_role[self.default_admin_role][sender()] = 0;
+        emit AdminRenounced(sender());
+        return 1;
+    }
+
+    pub fn role_count() -> u64 {
+        return self.role_count;
+    }
+
+    pub fn admin() -> address {
+        return self.admin;
+    }
+}

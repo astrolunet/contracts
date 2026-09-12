@@ -1,0 +1,91 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Timelock - delayed execution for governance actions on Astrolune.
+//
+// Compile:
+//     trocto contracts/governance/timelock.tc -o timelock.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Enforces a mandatory delay between queueing and executing operations.
+
+contract Timelock {
+    state {
+        admin: address,
+        min_delay: u64,
+        tx_count: u64,
+        tx_ready_at: map<u64,u64>,
+        tx_executed: map<u64,u64>,
+        queued: map<u64,u64>,
+    }
+
+    init(admin: address, min_delay: u64) {
+        self.admin = admin;
+        self.min_delay = min_delay;
+    }
+
+    pub fn queue_tx(delay: u64) -> u64 {
+        require(sender() == self.admin, 1);
+        require(delay >= self.min_delay, 50);
+        self.tx_count += 1;
+        let tx_id = self.tx_count;
+        tx_ready_at[tx_id] = block_height() + delay;
+        tx_executed[tx_id] = 0;
+        queued[tx_id] = 1;
+        emit TxQueued(tx_id, delay);
+        return tx_id;
+    }
+
+    pub fn execute_tx(tx_id: u64) -> u64 {
+        require(sender() == self.admin, 1);
+        require(queued[tx_id] == 1, 51);
+        require(block_height() >= tx_ready_at[tx_id], 52);
+        require(tx_executed[tx_id] == 0, 53);
+        tx_executed[tx_id] = 1;
+        queued[tx_id] = 0;
+        emit TxExecuted(tx_id);
+        return 1;
+    }
+
+    pub fn cancel_tx(tx_id: u64) -> u64 {
+        require(sender() == self.admin, 1);
+        require(queued[tx_id] == 1, 51);
+        queued[tx_id] = 0;
+        emit TxCancelled(tx_id);
+        return 1;
+    }
+
+    pub fn is_ready(tx_id: u64) -> u64 {
+        if (queued[tx_id] == 1 && block_height() >= tx_ready_at[tx_id]) {
+            return 1;
+        }
+        return 0;
+    }
+
+    pub fn is_executed(tx_id: u64) -> u64 {
+        return tx_executed[tx_id];
+    }
+
+    pub fn is_queued(tx_id: u64) -> u64 {
+        return queued[tx_id];
+    }
+
+    pub fn get_delay(tx_id: u64) -> u64 {
+        return tx_ready_at[tx_id];
+    }
+
+    pub fn min_delay() -> u64 {
+        return self.min_delay;
+    }
+
+    pub fn admin() -> address {
+        return self.admin;
+    }
+
+    pub fn transfer_admin(new_admin: address) -> u64 {
+        require(sender() == self.admin, 1);
+        self.admin = new_admin;
+        emit AdminTransferred(new_admin);
+        return 1;
+    }
+}

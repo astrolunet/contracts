@@ -1,7 +1,10 @@
-// Vesting - token vesting contract for Astrolune.
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Vesting - linear token vesting for Astrolune.
 //
 // Compile:
-//     trocto contracts/vesting.tc -o vesting.bin
+//     trocto contracts/defi/vesting.tc -o vesting.bin
 //
 // Deploy via a DEPLOY transaction with the compiled container.
 // Allows linear vesting of tokens over a specified number of blocks.
@@ -13,9 +16,11 @@ contract Vesting {
         released: u64,
         start_block: u64,
         duration: u64,
+        revocable: u64,
+        revoked: u64,
     }
 
-    init(beneficiary: address, total_amount: u64, duration: u64) {
+    init(beneficiary: address, total_amount: u64, duration: u64, revocable: u64) {
         require(total_amount > 0, 30);
         require(duration > 0, 31);
         self.beneficiary = beneficiary;
@@ -23,9 +28,14 @@ contract Vesting {
         self.duration = duration;
         self.start_block = block_height();
         self.released = 0;
+        self.revocable = revocable;
+        self.revoked = 0;
     }
 
     pub fn vested_amount() -> u64 {
+        if (self.revoked == 1) {
+            return 0;
+        }
         let elapsed = block_height() - self.start_block;
         if (elapsed >= self.duration) {
             return self.total_amount;
@@ -46,11 +56,32 @@ contract Vesting {
         return amount;
     }
 
+    pub fn revoke() -> u64 {
+        require(self.revocable == 1, 33);
+        require(self.revoked == 0, 34);
+        self.revoked = 1;
+        let unreleased = self.total_amount - self.released;
+        emit Revoked(self.beneficiary, unreleased);
+        return 1;
+    }
+
     pub fn beneficiary() -> address {
         return self.beneficiary;
     }
 
     pub fn total_amount() -> u64 {
         return self.total_amount;
+    }
+
+    pub fn released() -> u64 {
+        return self.released;
+    }
+
+    pub fn is_revocable() -> u64 {
+        return self.revocable;
+    }
+
+    pub fn is_revoked() -> u64 {
+        return self.revoked;
     }
 }

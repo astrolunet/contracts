@@ -1,0 +1,102 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Oracle - decentralized price feed oracle for Astrolune.
+//
+// Compile:
+//     trocto contracts/oracle/oracle.tc -o oracle.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Off-chain reporters submit price updates; consumers read latest price.
+
+contract Oracle {
+    state {
+        admin: address,
+        feed_count: u64,
+        feed_names: map<u64,u64>,
+        feed_prices: map<u64,u64>,
+        feed_timestamps: map<u64,u64>,
+        feed_heartbeats: map<u64,u64>,
+        reporter_count: u64,
+        reporters: map<u64,address>,
+        is_reporter: map<address,u64>,
+        min_reporters: u64,
+        feed_reports: map<u64,map<address,u64>>,
+        feed_report_count: map<u64,u64>,
+    }
+
+    init(min_reporters: u64) {
+        self.admin = sender();
+        self.min_reporters = min_reporters;
+    }
+
+    pub fn create_feed(name: u64, heartbeat: u64) -> u64 {
+        require(sender() == self.admin, 1);
+        self.feed_count += 1;
+        feed_names[self.feed_count] = name;
+        feed_prices[self.feed_count] = 0;
+        feed_timestamps[self.feed_count] = 0;
+        feed_heartbeats[self.feed_count] = heartbeat;
+        emit FeedCreated(self.feed_count, name);
+        return self.feed_count;
+    }
+
+    pub fn add_reporter(reporter: address) -> u64 {
+        require(sender() == self.admin, 1);
+        require(self.is_reporter[reporter] == 0, 90);
+        self.reporter_count += 1;
+        reporters[self.reporter_count] = reporter;
+        self.is_reporter[reporter] = 1;
+        emit ReporterAdded(reporter);
+        return 1;
+    }
+
+    pub fn remove_reporter(reporter: address) -> u64 {
+        require(sender() == self.admin, 1);
+        self.is_reporter[reporter] = 0;
+        emit ReporterRemoved(reporter);
+        return 1;
+    }
+
+    pub fn submit_price(feed_id: u64, price: u64) -> u64 {
+        require(self.is_reporter[sender()] == 1, 91);
+        require(feed_id <= self.feed_count, 92);
+        feed_reports[feed_id][sender()] = price;
+        feed_report_count[feed_id] += 1;
+        if (feed_report_count[feed_id] >= self.min_reporters) {
+            feed_prices[feed_id] = price;
+            feed_timestamps[feed_id] = block_height();
+            feed_report_count[feed_id] = 0;
+        }
+        emit PriceSubmitted(feed_id, sender(), price);
+        return 1;
+    }
+
+    pub fn get_price(feed_id: u64) -> u64 {
+        return feed_prices[feed_id];
+    }
+
+    pub fn get_timestamp(feed_id: u64) -> u64 {
+        return feed_timestamps[feed_id];
+    }
+
+    pub fn is_stale(feed_id: u64) -> u64 {
+        let elapsed = block_height() - feed_timestamps[feed_id];
+        if (elapsed > feed_heartbeats[feed_id]) {
+            return 1;
+        }
+        return 0;
+    }
+
+    pub fn feed_count() -> u64 {
+        return self.feed_count;
+    }
+
+    pub fn reporter_count() -> u64 {
+        return self.reporter_count;
+    }
+
+    pub fn is_reporter(addr: address) -> u64 {
+        return self.is_reporter[addr];
+    }
+}

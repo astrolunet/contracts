@@ -1,0 +1,53 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Pausable - emergency pause mechanism for Astrolune contracts.
+//
+// Compile:
+//     trocto contracts/security/pausable.tc -o pausable.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Owner can pause and unpause all operations. Useful for emergencies.
+
+contract Pausable {
+    state {
+        owner: address,
+        paused: u64,
+    }
+
+    init() {
+        self.owner = sender();
+        self.paused = 0;
+    }
+
+    pub fn pause() -> u64 {
+        require(sender() == self.owner, 1);
+        require(self.paused == 0, 60);
+        self.paused = 1;
+        emit Paused(sender());
+        return 1;
+    }
+
+    pub fn unpause() -> u64 {
+        require(sender() == self.owner, 1);
+        require(self.paused == 1, 61);
+        self.paused = 0;
+        emit Unpaused(sender());
+        return 1;
+    }
+
+    pub fn is_paused() -> u64 {
+        return self.paused;
+    }
+
+    pub fn owner() -> address {
+        return self.owner;
+    }
+
+    pub fn transfer_ownership(new_owner: address) -> u64 {
+        require(sender() == self.owner, 1);
+        self.owner = new_owner;
+        emit OwnershipTransferred(new_owner);
+        return 1;
+    }
+}

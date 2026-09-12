@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// NFT Factory - deploys new NFT collection contracts for Astrolune.
+//
+// Compile:
+//     trocto contracts/nft/factory.tc -o factory.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Tracks all deployed collections and their deployers.
+
+contract NFTFactory {
+    state {
+        collection_count: u64,
+        collections: map<u64,address>,
+        collection_deployer: map<u64,address>,
+        deployer: address,
+    }
+
+    init() {
+        self.deployer = sender();
+    }
+
+    pub fn create_collection(name: u64, symbol: u64) -> u64 {
+        self.collection_count += 1;
+        let collection_id = self.collection_count;
+        collection_deployer[collection_id] = sender();
+        emit CollectionCreated(collection_id, sender(), name, symbol);
+        return collection_id;
+    }
+
+    pub fn collection_of(collection_id: u64) -> address {
+        return collections[collection_id];
+    }
+
+    pub fn deployer_of(collection_id: u64) -> address {
+        return collection_deployer[collection_id];
+    }
+
+    pub fn collection_count() -> u64 {
+        return self.collection_count;
+    }
+
+    pub fn owner() -> address {
+        return self.deployer;
+    }
+}

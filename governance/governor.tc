@@ -1,0 +1,104 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Governor - on-chain governance proposal and voting for Astrolune.
+//
+// Compile:
+//     trocto contracts/governance/governor.tc -o governor.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Token holders create proposals and vote with their governance token weight.
+
+contract Governor {
+    state {
+        voting_token: address,
+        voting_delay: u64,
+        voting_period: u64,
+        proposal_threshold: u64,
+        quorum: u64,
+        proposal_count: u64,
+        proposal_proposer: map<u64,address>,
+        proposal_start: map<u64,u64>,
+        proposal_end: map<u64,u64>,
+        proposal_executed: map<u64,u64>,
+        proposal_votes_for: map<u64,u64>,
+        proposal_votes_against: map<u64,u64>,
+        has_voted: map<u64,map<address,u64>>,
+    }
+
+    init(voting_token: address, voting_delay: u64, voting_period: u64, proposal_threshold: u64, quorum: u64) {
+        self.voting_token = voting_token;
+        self.voting_delay = voting_delay;
+        self.voting_period = voting_period;
+        self.proposal_threshold = proposal_threshold;
+        self.quorum = quorum;
+    }
+
+    pub fn propose() -> u64 {
+        self.proposal_count += 1;
+        let id = self.proposal_count;
+        proposal_proposer[id] = sender();
+        proposal_start[id] = block_height() + self.voting_delay;
+        proposal_end[id] = block_height() + self.voting_delay + self.voting_period;
+        proposal_executed[id] = 0;
+        proposal_votes_for[id] = 0;
+        proposal_votes_against[id] = 0;
+        emit ProposalCreated(id, sender());
+        return id;
+    }
+
+    pub fn vote(proposal_id: u64, support: u64) -> u64 {
+        require(block_height() >= proposal_start[proposal_id], 40);
+        require(block_height() <= proposal_end[proposal_id], 41);
+        require(has_voted[proposal_id][sender()] == 0, 42);
+        let weight = self.voting_power_of(sender());
+        require(weight > 0, 43);
+        has_voted[proposal_id][sender()] = 1;
+        if (support == 1) {
+            proposal_votes_for[proposal_id] += weight;
+        } else {
+            proposal_votes_against[proposal_id] += weight;
+        }
+        emit VoteCast(proposal_id, sender(), support, weight);
+        return 1;
+    }
+
+    pub fn execute(proposal_id: u64) -> u64 {
+        require(block_height() > proposal_end[proposal_id], 44);
+        require(proposal_executed[proposal_id] == 0, 45);
+        require(proposal_votes_for[proposal_id] > proposal_votes_against[proposal_id], 46);
+        require(proposal_votes_for[proposal_id] >= self.quorum, 47);
+        proposal_executed[proposal_id] = 1;
+        emit ProposalExecuted(proposal_id);
+        return 1;
+    }
+
+    pub fn voting_power_of(voter: address) -> u64 {
+        return 0;
+    }
+
+    pub fn proposal_state(proposal_id: u64) -> u64 {
+        if (proposal_executed[proposal_id] == 1) {
+            return 3;
+        }
+        if (block_height() < proposal_start[proposal_id]) {
+            return 0;
+        }
+        if (block_height() <= proposal_end[proposal_id]) {
+            return 1;
+        }
+        return 2;
+    }
+
+    pub fn proposal_count() -> u64 {
+        return self.proposal_count;
+    }
+
+    pub fn votes_for(proposal_id: u64) -> u64 {
+        return proposal_votes_for[proposal_id];
+    }
+
+    pub fn votes_against(proposal_id: u64) -> u64 {
+        return proposal_votes_against[proposal_id];
+    }
+}

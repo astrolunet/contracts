@@ -1,22 +1,28 @@
-// NFT - ERC-721-style non-fungible token for Astrolune.
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Collectible - ERC-721-style non-fungible token for Astrolune.
 //
 // Compile:
-//     trocto contracts/nft.tc -o nft.bin
+//     trocto contracts/nft/collectible.tc -o collectible.bin
 //
 // Deploy via a DEPLOY transaction with the compiled container.
-// The constructor (init) sets the collection name and mints token #1 to deployer.
+// The constructor (init) sets name, symbol and mints token #1 to deployer.
 
-contract NFT {
+contract Collectible {
     state {
         name: u64,
+        symbol: u64,
         total_supply: u64,
         balances: map<address,u64>,
         owners: map<u64,address>,
         approvals: map<u64,address>,
+        operator_approvals: map<address,u64>,
     }
 
-    init(name: u64) {
+    init(name: u64, symbol: u64) {
         self.name = name;
+        self.symbol = symbol;
         self.total_supply = 1;
         owners[1] = sender();
         balances[sender()] = 1;
@@ -38,11 +44,18 @@ contract NFT {
         return 1;
     }
 
+    pub fn set_approval_for_all(operator: address, approved: u64) -> u64 {
+        operator_approvals[sender()] = approved;
+        emit ApprovalForAll(sender(), operator, approved);
+        return 1;
+    }
+
     pub fn transfer(to: address, token_id: u64) -> u64 {
         require(owners[token_id] == sender(), 1);
         owners[token_id] = to;
         balances[sender()] -= 1;
         balances[to] += 1;
+        approvals[token_id] = 0;
         emit Transfer(sender(), to, token_id);
         return 1;
     }
@@ -50,7 +63,8 @@ contract NFT {
     pub fn transfer_from(from: address, to: address, token_id: u64) -> u64 {
         require(owners[token_id] == from, 1);
         let approved = approvals[token_id];
-        require(approved == sender() || from == sender(), 5);
+        let is_operator = operator_approvals[from];
+        require(approved == sender() || is_operator == 1 || from == sender(), 5);
         owners[token_id] = to;
         balances[from] -= 1;
         balances[to] += 1;
@@ -73,7 +87,12 @@ contract NFT {
         let owner = owners[token_id];
         balances[owner] -= 1;
         owners[token_id] = 0;
+        approvals[token_id] = 0;
         emit Transfer(owner, 0, token_id);
         return 1;
+    }
+
+    pub fn total_supply() -> u64 {
+        return self.total_supply;
     }
 }

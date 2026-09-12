@@ -1,0 +1,118 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Mintable Token - owner-controlled mintable fungible token for Astrolune.
+//
+// Compile:
+//     trocto contracts/token/mintable.tc -o mintable.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Only the owner (deployer) can mint new tokens. Supply is capped.
+
+contract MintableToken {
+    state {
+        name: u64,
+        symbol: u64,
+        decimals: u64,
+        total_supply: u64,
+        max_supply: u64,
+        owner: address,
+        balances: map<address,u64>,
+        allowances: map<address,u64>,
+        is_paused: u64,
+    }
+
+    init(name: u64, symbol: u64, max_supply: u64) {
+        self.name = name;
+        self.symbol = symbol;
+        self.decimals = 18;
+        self.max_supply = max_supply;
+        self.owner = sender();
+        self.total_supply = 0;
+    }
+
+    pub fn mint(to: address, amount: u64) -> u64 {
+        require(sender() == self.owner, 1);
+        require(self.is_paused == 0, 7);
+        require(self.total_supply + amount <= self.max_supply, 6);
+        self.total_supply += amount;
+        balances[to] += amount;
+        emit Transfer(0, to, amount);
+        return 1;
+    }
+
+    pub fn burn(amount: u64) -> u64 {
+        let sender_balance = balances[sender()];
+        require(sender_balance >= amount, 2);
+        balances[sender()] = sender_balance - amount;
+        self.total_supply -= amount;
+        emit Transfer(sender(), 0, amount);
+        return 1;
+    }
+
+    pub fn transfer(to: address, amount: u64) -> u64 {
+        require(self.is_paused == 0, 7);
+        let sender_balance = balances[sender()];
+        require(sender_balance >= amount, 2);
+        require(amount > 0, 4);
+        balances[sender()] = sender_balance - amount;
+        balances[to] += amount;
+        emit Transfer(sender(), to, amount);
+        return 1;
+    }
+
+    pub fn approve(spender: address, amount: u64) -> u64 {
+        allowances[sender()] = amount;
+        emit Approval(sender(), spender, amount);
+        return 1;
+    }
+
+    pub fn transfer_from(from: address, to: address, amount: u64) -> u64 {
+        let allowed = allowances[from];
+        require(allowed >= amount, 3);
+        let from_balance = balances[from];
+        require(from_balance >= amount, 2);
+        allowances[from] = allowed - amount;
+        balances[from] = from_balance - amount;
+        balances[to] += amount;
+        emit Transfer(from, to, amount);
+        return 1;
+    }
+
+    pub fn pause() -> u64 {
+        require(sender() == self.owner, 1);
+        self.is_paused = 1;
+        emit Paused();
+        return 1;
+    }
+
+    pub fn unpause() -> u64 {
+        require(sender() == self.owner, 1);
+        self.is_paused = 0;
+        emit Unpaused();
+        return 1;
+    }
+
+    pub fn transfer_ownership(new_owner: address) -> u64 {
+        require(sender() == self.owner, 1);
+        self.owner = new_owner;
+        emit OwnershipTransferred(new_owner);
+        return 1;
+    }
+
+    pub fn total_supply() -> u64 {
+        return self.total_supply;
+    }
+
+    pub fn max_supply() -> u64 {
+        return self.max_supply;
+    }
+
+    pub fn balance_of(owner: address) -> u64 {
+        return balances[owner];
+    }
+
+    pub fn owner() -> address {
+        return self.owner;
+    }
+}

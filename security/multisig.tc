@@ -1,7 +1,10 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
 // Multisig - multi-signature wallet for Astrolune.
 //
 // Compile:
-//     trocto contracts/multisig.tc -o multisig.bin
+//     trocto contracts/security/multisig.tc -o multisig.bin
 //
 // Deploy via a DEPLOY transaction with the compiled container.
 // The constructor (init) receives the quorum threshold and initial owners.
@@ -32,6 +35,15 @@ contract Multisig {
         owners[self.owner_count] = owner;
         is_owner[owner] = 1;
         emit OwnerAdded(owner);
+        return 1;
+    }
+
+    pub fn remove_owner(owner: address) -> u64 {
+        require(is_owner[sender()] == 1, 1);
+        require(is_owner[owner] == 1, 14);
+        require(self.owner_count > self.quorum, 15);
+        is_owner[owner] = 0;
+        emit OwnerRemoved(owner);
         return 1;
     }
 
@@ -74,5 +86,9 @@ contract Multisig {
 
     pub fn owner_count() -> u64 {
         return self.owner_count;
+    }
+
+    pub fn is_owner(addr: address) -> u64 {
+        return is_owner[addr];
     }
 }

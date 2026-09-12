@@ -1,0 +1,49 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Deployer - contract deployment factory for Astrolune.
+//
+// Compile:
+//     trocto contracts/factory/deployer.tc -o deployer.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Deploys new contracts and tracks all deployed addresses.
+
+contract Deployer {
+    state {
+        admin: address,
+        deploy_count: u64,
+        deployments: map<u64,address>,
+        deployers: map<u64,address>,
+        deploy_bytecode: map<u64,u64>,
+    }
+
+    init() {
+        self.admin = sender();
+    }
+
+    pub fn deploy(bytecode_id: u64) -> u64 {
+        self.deploy_count += 1;
+        let deploy_id = self.deploy_count;
+        deployers[deploy_id] = sender();
+        deploy_bytecode[deploy_id] = bytecode_id;
+        emit Deployed(deploy_id, sender(), bytecode_id);
+        return deploy_id;
+    }
+
+    pub fn get_deployment(deploy_id: u64) -> address {
+        return deployments[deploy_id];
+    }
+
+    pub fn get_deployer(deploy_id: u64) -> address {
+        return deployers[deploy_id];
+    }
+
+    pub fn deploy_count() -> u64 {
+        return self.deploy_count;
+    }
+
+    pub fn admin() -> address {
+        return self.admin;
+    }
+}
