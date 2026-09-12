@@ -1,0 +1,79 @@
+// NFT - ERC-721-style non-fungible token for Astrolune.
+//
+// Compile:
+//     trocto contracts/nft.tc -o nft.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// The constructor (init) sets the collection name and mints token #1 to deployer.
+
+contract NFT {
+    state {
+        name: u64,
+        total_supply: u64,
+        balances: map<address,u64>,
+        owners: map<u64,address>,
+        approvals: map<u64,address>,
+    }
+
+    init(name: u64) {
+        self.name = name;
+        self.total_supply = 1;
+        owners[1] = sender();
+        balances[sender()] = 1;
+        emit Transfer(0, sender(), 1);
+    }
+
+    pub fn balance_of(owner: address) -> u64 {
+        return balances[owner];
+    }
+
+    pub fn owner_of(token_id: u64) -> address {
+        return owners[token_id];
+    }
+
+    pub fn approve(to: address, token_id: u64) -> u64 {
+        require(owners[token_id] == sender(), 1);
+        approvals[token_id] = to;
+        emit Approval(sender(), to, token_id);
+        return 1;
+    }
+
+    pub fn transfer(to: address, token_id: u64) -> u64 {
+        require(owners[token_id] == sender(), 1);
+        owners[token_id] = to;
+        balances[sender()] -= 1;
+        balances[to] += 1;
+        emit Transfer(sender(), to, token_id);
+        return 1;
+    }
+
+    pub fn transfer_from(from: address, to: address, token_id: u64) -> u64 {
+        require(owners[token_id] == from, 1);
+        let approved = approvals[token_id];
+        require(approved == sender() || from == sender(), 5);
+        owners[token_id] = to;
+        balances[from] -= 1;
+        balances[to] += 1;
+        approvals[token_id] = 0;
+        emit Transfer(from, to, token_id);
+        return 1;
+    }
+
+    pub fn mint(to: address) -> u64 {
+        self.total_supply += 1;
+        let token_id = self.total_supply;
+        owners[token_id] = to;
+        balances[to] += 1;
+        emit Transfer(0, to, token_id);
+        return token_id;
+    }
+
+    pub fn burn(token_id: u64) -> u64 {
+        require(owners[token_id] == sender(), 1);
+        let owner = owners[token_id];
+        balances[owner] -= 1;
+        owners[token_id] = 0;
+        emit Transfer(owner, 0, token_id);
+        return 1;
+    }
+}

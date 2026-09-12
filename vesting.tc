@@ -1,0 +1,56 @@
+// Vesting - token vesting contract for Astrolune.
+//
+// Compile:
+//     trocto contracts/vesting.tc -o vesting.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Allows linear vesting of tokens over a specified number of blocks.
+
+contract Vesting {
+    state {
+        beneficiary: address,
+        total_amount: u64,
+        released: u64,
+        start_block: u64,
+        duration: u64,
+    }
+
+    init(beneficiary: address, total_amount: u64, duration: u64) {
+        require(total_amount > 0, 30);
+        require(duration > 0, 31);
+        self.beneficiary = beneficiary;
+        self.total_amount = total_amount;
+        self.duration = duration;
+        self.start_block = block_height();
+        self.released = 0;
+    }
+
+    pub fn vested_amount() -> u64 {
+        let elapsed = block_height() - self.start_block;
+        if (elapsed >= self.duration) {
+            return self.total_amount;
+        }
+        return (self.total_amount * elapsed) / self.duration;
+    }
+
+    pub fn releasable() -> u64 {
+        return self.vested_amount() - self.released;
+    }
+
+    pub fn release() -> u64 {
+        require(sender() == self.beneficiary, 1);
+        let amount = self.releasable();
+        require(amount > 0, 32);
+        self.released += amount;
+        emit Released(self.beneficiary, amount);
+        return amount;
+    }
+
+    pub fn beneficiary() -> address {
+        return self.beneficiary;
+    }
+
+    pub fn total_amount() -> u64 {
+        return self.total_amount;
+    }
+}

@@ -1,0 +1,66 @@
+// Token - ERC-20-style fungible token for Astrolune.
+//
+// Compile:
+//     trocto contracts/token.tc -o token.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// The constructor (init) receives the initial supply and mints to deployer.
+
+contract Token {
+    state {
+        total_supply: u64,
+        balances: map<address,u64>,
+        allowances: map<address,u64>,
+    }
+
+    init(initial_supply: u64) {
+        self.total_supply = initial_supply;
+        balances[sender()] = initial_supply;
+        emit Transfer(0, sender(), initial_supply);
+    }
+
+    pub fn total_supply() -> u64 {
+        return self.total_supply;
+    }
+
+    pub fn balance_of(owner: address) -> u64 {
+        return balances[owner];
+    }
+
+    pub fn transfer(to: address, amount: u64) -> u64 {
+        let sender_balance = balances[sender()];
+        require(sender_balance >= amount, 2);
+        require(amount > 0, 4);
+        balances[sender()] = sender_balance - amount;
+        balances[to] += amount;
+        emit Transfer(sender(), to, amount);
+        return 1;
+    }
+
+    pub fn approve(spender: address, amount: u64) -> u64 {
+        allowances[sender()] = amount;
+        emit Approval(sender(), spender, amount);
+        return 1;
+    }
+
+    pub fn transfer_from(from: address, to: address, amount: u64) -> u64 {
+        let allowed = allowances[from];
+        require(allowed >= amount, 3);
+        let from_balance = balances[from];
+        require(from_balance >= amount, 2);
+        allowances[from] = allowed - amount;
+        balances[from] = from_balance - amount;
+        balances[to] += amount;
+        emit Transfer(from, to, amount);
+        return 1;
+    }
+
+    pub fn burn(amount: u64) -> u64 {
+        let sender_balance = balances[sender()];
+        require(sender_balance >= amount, 2);
+        balances[sender()] = sender_balance - amount;
+        self.total_supply -= amount;
+        emit Transfer(sender(), 0, amount);
+        return 1;
+    }
+}

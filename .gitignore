@@ -1,0 +1,20 @@
+# Compiled binaries
+*.bin
+*.o
+*.obj
+
+# Build directories
+build/
+cmake-build-*/
+
+# Editor and IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
