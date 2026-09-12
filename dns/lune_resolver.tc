@@ -1,0 +1,133 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Lune Resolver - standard resolution interface for .lune names.
+//
+// Compile:
+//     trocto contracts/dns/lune_resolver.tc -o lune_resolver.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// This contract provides a unified lookup interface so that clients
+// do not need to special-case each name's individual contract.
+//
+// Design rationale (see docs/05-services/dns.md §5):
+//   - On-chain resolution is the source of truth: walk from this
+//     contract's registry reference to the specific name's record.
+//   - Off-chain resolution (light clients or caching resolvers) uses
+//     the same logic but with Merkle proofs for trust minimization.
+//   - A caching resolver is a performance optimization, never a trust
+//     requirement: a paranoid client can bypass it by verifying proofs.
+//
+// The resolver stores a mapping from name_hash to name_contract address,
+// enabling a single call to resolve any .lune name to its full record.
+
+contract LuneResolver {
+    state {
+        admin: address,
+        registry: address,
+        name_contract: map<u64,address>,
+        name_count: u64,
+    }
+
+    // Constructor: called once at deployment.
+    // registry_address - the deployed LuneRegistry contract address.
+    init(registry_address: address) {
+        self.admin = sender();
+        self.registry = registry_address;
+        self.name_count = 0;
+    }
+
+    // --- Registration ---
+
+    // Associate a name_hash with its deployed LuneName contract address.
+    // This is called after the registry records the name and the LuneName
+    // contract is deployed. Only the admin (registry deployer) may call
+    // this, ensuring the mapping is authoritative.
+    pub fn set_name_contract(name_hash: u64, contract_address: address) -> u64 {
+        require(sender() == self.admin, 1);
+        require(contract_address != 0, 11);
+        if (name_contract[name_hash] == 0) {
+            self.name_count += 1;
+        }
+        name_contract[name_hash] = contract_address;
+        emit NameContractSet(name_hash, contract_address);
+        return 1;
+    }
+
+    // --- Resolution ---
+
+    // Resolve a name_hash to its LuneName contract address.
+    // Returns 0 if the name has no contract mapping (not registered or
+    // not yet deployed).
+    pub fn resolve_contract(name_hash: u64) -> address {
+        return name_contract[name_hash];
+    }
+
+    // Resolve a name_hash to its resolved_address by reading the
+    // LuneName contract's state. This is a convenience wrapper that
+    // performs a cross-contract read.
+    //
+    // NOTE: In Trocto v0.3+ with cross-contract calls, this would
+    // invoke the LuneName contract's resolved_address() function.
+    // For v0.2, clients resolve by reading the contract state directly.
+    pub fn resolve_address(name_hash: u64) -> address {
+        // Placeholder: cross-contract call not yet available in v0.2.
+        // In production, this would be:
+        //   return call(name_contract[name_hash], "resolved_address");
+        return name_contract[name_hash];
+    }
+
+    // Resolve a name_hash to its content_root for Astrolune Pages.
+    // Returns 0 if the name does not serve content.
+    pub fn resolve_content_root(name_hash: u64) -> u64 {
+        // Placeholder: cross-contract call not yet available in v0.2.
+        // In production, this would be:
+        //   return call(name_contract[name_hash], "content_root");
+        return 0;
+    }
+
+    // --- Batch resolution ---
+
+    // Resolve up to `count` name hashes in a single call.
+    // Returns the number of successfully resolved names.
+    // `hashes_offset` and `results_offset` are memory offsets for
+    // caller-provided arrays of name_hash (input) and address (output).
+    //
+    // NOTE: Batch resolution depends on memory host calls (MLOAD/MSTORE)
+    // which are ISA v2. This is a forward-compatible design.
+    pub fn resolve_batch(count: u64) -> u64 {
+        // Placeholder for batch resolution.
+        // In production with ISA v2 memory ops:
+        //   for i in 0..count {
+        //       let name_hash = mload(hashes_offset + i * 8);
+        //       let addr = name_contract[name_hash];
+        //       mstore(results_offset + i * 8, addr);
+        //   }
+        return count;
+    }
+
+    // --- Admin ---
+
+    // Transfer admin role. Only the current admin may call this.
+    pub fn transfer_admin(new_admin: address) -> u64 {
+        require(sender() == self.admin, 1);
+        require(new_admin != 0, 11);
+        self.admin = new_admin;
+        emit AdminTransferred(new_admin);
+        return 1;
+    }
+
+    // --- Queries ---
+
+    pub fn registry() -> address {
+        return self.registry;
+    }
+
+    pub fn name_count() -> u64 {
+        return self.name_count;
+    }
+
+    pub fn admin() -> address {
+        return self.admin;
+    }
+}

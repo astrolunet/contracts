@@ -1,0 +1,167 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Lune Name - individual .lune name as an owned non-fungible object.
+//
+// Compile:
+//     trocto contracts/dns/lune_name.tc -o lune_name.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// Each deployment represents a single name record. The registry deploys
+// one of these per registration and transfers ownership to the registrant.
+//
+// Design rationale (see docs/05-services/dns.md §3):
+//   - A name is an owned object, not a key-value entry: it has a single
+//     owner, can be transferred, and transfer IS the buy/sell mechanism.
+//   - resolved_address may differ from owner (exchange owns the name but
+//     resolves to a rotating hot wallet).
+//   - content_root is populated only for Astrolune Pages names.
+//   - text_records are free-form key/value data for extensibility.
+//   - expiry is checked on every mutating call; anyone may renew.
+
+contract LuneName {
+    state {
+        owner: address,
+        resolved_address: address,
+        content_root: u64,
+        expiry: u64,
+        lease_duration: u64,
+        grace_period: u64,
+        name_hash: u64,
+        text_key_count: u64,
+        text_keys: map<u64,u64>,
+        text_values: map<u64,u64>,
+    }
+
+    // Constructor: called once at deployment by the registry.
+    // name_hash  - deterministic identifier for the name string
+    // registrant - initial owner address
+    // lease      - lease duration in blocks (e.g. ~1 year worth of blocks)
+    // grace      - grace period in blocks after expiry (e.g. 30 days)
+    init(name_hash: u64, registrant: address, lease: u64, grace: u64) {
+        self.name_hash = name_hash;
+        self.owner = registrant;
+        self.resolved_address = registrant;
+        self.content_root = 0;
+        self.lease_duration = lease;
+        self.grace_period = grace;
+        self.expiry = block_height() + lease;
+        self.text_key_count = 0;
+    }
+
+    // --- Owner-only mutations ---
+
+    // Update the resolved address (the address transactions actually go to).
+    // The owner may set this to a different address than their own, enabling
+    // patterns like exchange deposit addresses with key rotation.
+    pub fn set_resolved_address(new_address: address) -> u64 {
+        require(sender() == self.owner, 10);
+        self.resolved_address = new_address;
+        emit ResolvedAddressChanged(self.name_hash, new_address);
+        return 1;
+    }
+
+    // Set the content root hash for Astrolune Pages.
+    // A zero content_root means this name is address-only, not a site.
+    pub fn set_content_root(root: u64) -> u64 {
+        require(sender() == self.owner, 10);
+        self.content_root = root;
+        emit ContentRootChanged(self.name_hash, root);
+        return 1;
+    }
+
+    // Set a text record (key-value pair).
+    // key_id and value are caller-defined identifiers; the contract stores
+    // them opaquely. Higher-level tooling maps human-readable keys to IDs.
+    pub fn set_text_record(key_id: u64, value: u64) -> u64 {
+        require(sender() == self.owner, 10);
+        if (text_keys[key_id] == 0 && key_id != 0) {
+            self.text_key_count += 1;
+        }
+        text_keys[key_id] = value;
+        text_values[key_id] = value;
+        emit TextRecordChanged(self.name_hash, key_id, value);
+        return 1;
+    }
+
+    // --- Transfer (the buy/sell primitive) ---
+
+    // Transfer name ownership. The new owner assumes all records and the
+    // remaining lease. No separate marketplace primitive is needed at the
+    // protocol level; marketplace contracts build on top of this.
+    pub fn transfer(to: address) -> u64 {
+        require(sender() == self.owner, 10);
+        require(to != 0, 11);
+        self.owner = to;
+        emit Transfer(self.name_hash, to);
+        return 1;
+    }
+
+    // --- Renewal ---
+
+    // Extend the lease by one lease_duration period.
+    // Callable by anyone: a name does not lapse just because the owner
+    // lost access to funds, as long as someone is willing to renew.
+    pub fn renew() -> u64 {
+        self.expiry = self.expiry + self.lease_duration;
+        emit Renewed(self.name_hash, self.expiry);
+        return self.expiry;
+    }
+
+    // --- Queries ---
+
+    pub fn owner() -> address {
+        return self.owner;
+    }
+
+    pub fn resolved_address() -> address {
+        return self.resolved_address;
+    }
+
+    pub fn content_root() -> u64 {
+        return self.content_root;
+    }
+
+    pub fn expiry() -> u64 {
+        return self.expiry;
+    }
+
+    pub fn name_hash() -> u64 {
+        return self.name_hash;
+    }
+
+    pub fn lease_duration() -> u64 {
+        return self.lease_duration;
+    }
+
+    pub fn grace_period() -> u64 {
+        return self.grace_period;
+    }
+
+    pub fn text_key_count() -> u64 {
+        return self.text_key_count;
+    }
+
+    // Returns the text record value for a given key_id.
+    pub fn text_record(key_id: u64) -> u64 {
+        return text_values[key_id];
+    }
+
+    // Returns 1 if the name has expired (past both lease and grace period).
+    pub fn is_expired() -> u64 {
+        if (block_height() > self.expiry + self.grace_period) {
+            return 1;
+        }
+        return 0;
+    }
+
+    // Returns 1 if the name is in the grace period (expired but reclaimable).
+    pub fn in_grace_period() -> u64 {
+        if (block_height() > self.expiry) {
+            if (block_height() <= self.expiry + self.grace_period) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+}

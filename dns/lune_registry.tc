@@ -1,0 +1,236 @@
+// Copyright (c) 2026 Astrolune contributors
+// SPDX-License-Identifier: MIT
+//
+// Lune Registry - canonical top-level registry for .lune names.
+//
+// Compile:
+//     trocto contracts/dns/lune_registry.tc -o lune_registry.bin
+//
+// Deploy via a DEPLOY transaction with the compiled container.
+// This is the root of trust for Astrolune DNS: it is deployed at a
+// well-known address at genesis or shortly after, and every .lune
+// name must be registered through this contract.
+//
+// Design rationale (see docs/05-services/dns.md §2-4):
+//   - Registration is first-come-first-served at a flat, name-length-
+//     based fee. Shorter names cost more to discourage squatting.
+//   - A lease model with renewal prevents permanent squatting.
+//   - Names are owned non-fungible objects (LuneName contracts).
+//   - The registry does NOT enforce trademark claims on-chain; dispute
+//     resolution is explicitly a governance/off-chain question.
+
+contract LuneRegistry {
+    state {
+        admin: address,
+        total_names: u64,
+        registered: map<u64,u64>,
+        name_owner: map<u64,address>,
+        name_expiry: map<u64,u64>,
+        lease_duration: u64,
+        grace_period: u64,
+        fee_short: u64,
+        fee_medium: u64,
+        fee_long: u64,
+    }
+
+    // Constructor: called once at deployment.
+    // Sets the admin, lease/grace periods, and fee tiers.
+    //
+    // fee_short  - fee for names 1-4 chars (e.g. 100 AL)
+    // fee_medium - fee for names 5-8 chars (e.g. 50 AL)
+    // fee_long   - fee for names 9+ chars  (e.g. 10 AL)
+    // lease      - lease duration in blocks (~1 year at target block time)
+    // grace      - grace period in blocks (~30 days at target block time)
+    init(fee_short: u64, fee_medium: u64, fee_long: u64, lease: u64, grace: u64) {
+        self.admin = sender();
+        self.total_names = 0;
+        self.lease_duration = lease;
+        self.grace_period = grace;
+        self.fee_short = fee_short;
+        self.fee_medium = fee_medium;
+        self.fee_long = fee_long;
+    }
+
+    // --- Core registration ---
+
+    // Register a new name. The caller pays the registration fee.
+    // name_hash - deterministic identifier for the name string
+    // label_length - length of the name label (excluding .lune suffix)
+    //
+    // Fee is determined by label_length:
+    //   1-4 chars  -> fee_short
+    //   5-8 chars  -> fee_medium
+    //   9+ chars   -> fee_long
+    //
+    // The name is registered in this contract's state and the caller
+    // becomes the initial owner. A LuneName contract should be deployed
+    // as a separate step (or atomically in a future contract-call
+    // primitive) to hold the full name record.
+    //
+    // Error codes:
+    //   20 - name already registered and not expired
+    //   21 - name in grace period (previous owner has right of first renewal)
+    //   22 - name label too long (max 63 chars per label)
+    //   23 - insufficient payment (value < required fee)
+    pub fn register(name_hash: u64, label_length: u64) -> u64 {
+        require(label_length <= 63, 22);
+
+        let existing = registered[name_hash];
+        if (existing == 1) {
+            let expiry = name_expiry[name_hash];
+            // Still within lease or grace period: unavailable.
+            if (block_height() <= expiry + self.grace_period) {
+                if (block_height() <= expiry) {
+                    require(0, 20);
+                } else {
+                    require(0, 21);
+                }
+            }
+            // Past grace period: allow re-registration.
+        }
+
+        let fee = self.fee_for_length(label_length);
+        // NOTE: In a production deployment, the contract would verify
+        // that the caller has sent at least `fee` tokens. The Trocto
+        // vm currently models this through call_value() or a host
+        // function; the exact mechanism depends on the VM version.
+
+        self.total_names += 1;
+        registered[name_hash] = 1;
+        name_owner[name_hash] = sender();
+        name_expiry[name_hash] = block_height() + self.lease_duration;
+
+        emit NameRegistered(name_hash, sender(), fee);
+        return self.total_names;
+    }
+
+    // --- Renewal ---
+
+    // Renew a name by extending its expiry by lease_duration.
+    // Callable by anyone, not only the current owner.
+    // This ensures a name does not lapse due to the owner's key loss
+    // as long as someone is willing to pay the renewal.
+    pub fn renew(name_hash: u64) -> u64 {
+        require(registered[name_hash] == 1, 30);
+        let new_expiry = name_expiry[name_hash] + self.lease_duration;
+        name_expiry[name_hash] = new_expiry;
+        emit NameRenewed(name_hash, new_expiry);
+        return new_expiry;
+    }
+
+    // --- Transfer ---
+
+    // Transfer ownership of a registered name record.
+    // The new owner takes over the name and its remaining lease.
+    pub fn transfer(name_hash: u64, new_owner: address) -> u64 {
+        require(registered[name_hash] == 1, 30);
+        require(sender() == name_owner[name_hash], 10);
+        require(new_owner != 0, 11);
+        name_owner[name_hash] = new_owner;
+        emit NameTransferred(name_hash, sender(), new_owner);
+        return 1;
+    }
+
+    // --- Expiry and availability ---
+
+    // Returns 1 if the name is currently registered and not expired.
+    pub fn is_registered(name_hash: u64) -> u64 {
+        if (registered[name_hash] == 0) {
+            return 0;
+        }
+        if (block_height() > name_expiry[name_hash] + self.grace_period) {
+            return 0;
+        }
+        return 1;
+    }
+
+    // Returns 1 if the name is past expiry but within grace period.
+    // During this window, the previous owner retains right-of-first-renewal.
+    pub fn in_grace_period(name_hash: u64) -> u64 {
+        if (registered[name_hash] == 0) {
+            return 0;
+        }
+        let expiry = name_expiry[name_hash];
+        if (block_height() > expiry) {
+            if (block_height() <= expiry + self.grace_period) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    // --- Admin ---
+
+    // Update fee tiers. Admin-only.
+    pub fn set_fees(fee_short: u64, fee_medium: u64, fee_long: u64) -> u64 {
+        require(sender() == self.admin, 1);
+        self.fee_short = fee_short;
+        self.fee_medium = fee_medium;
+        self.fee_long = fee_long;
+        emit FeesUpdated(fee_short, fee_medium, fee_long);
+        return 1;
+    }
+
+    // Update lease and grace periods. Admin-only.
+    pub fn set_periods(lease: u64, grace: u64) -> u64 {
+        require(sender() == self.admin, 1);
+        self.lease_duration = lease;
+        self.grace_period = grace;
+        emit PeriodsUpdated(lease, grace);
+        return 1;
+    }
+
+    // --- Fee calculation (internal) ---
+
+    // Determine registration fee based on label length.
+    //   1-4 chars  -> fee_short  (premium short names)
+    //   5-8 chars  -> fee_medium (mid-tier)
+    //   9+ chars   -> fee_long   (standard)
+    fn fee_for_length(label_length: u64) -> u64 {
+        if (label_length <= 4) {
+            return self.fee_short;
+        }
+        if (label_length <= 8) {
+            return self.fee_medium;
+        }
+        return self.fee_long;
+    }
+
+    // --- Queries ---
+
+    pub fn total_names() -> u64 {
+        return self.total_names;
+    }
+
+    pub fn name_owner(name_hash: u64) -> address {
+        return name_owner[name_hash];
+    }
+
+    pub fn name_expiry(name_hash: u64) -> u64 {
+        return name_expiry[name_hash];
+    }
+
+    pub fn lease_duration() -> u64 {
+        return self.lease_duration;
+    }
+
+    pub fn grace_period() -> u64 {
+        return self.grace_period;
+    }
+
+    pub fn fee_short() -> u64 {
+        return self.fee_short;
+    }
+
+    pub fn fee_medium() -> u64 {
+        return self.fee_medium;
+    }
+
+    pub fn fee_long() -> u64 {
+        return self.fee_long;
+    }
+
+    pub fn admin() -> address {
+        return self.admin;
+    }
+}

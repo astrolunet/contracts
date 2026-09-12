@@ -30,6 +30,10 @@ contracts/
     oracle.tc            Decentralized price feed oracle
   factory/
     deployer.tc          Contract deployment factory
+  dns/
+    lune_registry.tc     Top-level .lune name registry
+    lune_name.tc         Individual name NFT (owned object)
+    lune_resolver.tc     Standard resolution interface
 ```
 
 ## Contracts
@@ -89,6 +93,14 @@ contracts/
 | Contract | Description |
 |---|---|
 | [`deployer.tc`](factory/deployer.tc) | Deploy and track contract instances |
+
+### DNS
+
+| Contract | Description |
+|---|---|
+| [`lune_registry.tc`](dns/lune_registry.tc) | Top-level .lune name registry with fee tiers and lease management |
+| [`lune_name.tc`](dns/lune_name.tc) | Individual name as an owned non-fungible object with resolution records |
+| [`lune_resolver.tc`](dns/lune_resolver.tc) | Standard resolution interface mapping name hashes to contract addresses |
 
 ## Usage
 
